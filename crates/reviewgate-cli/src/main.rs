@@ -300,9 +300,17 @@ fn parse_score(value: &str, field: &str) -> Result<u8> {
 fn collect_review_context(repo: &Path) -> Result<ReviewContext> {
     let reviewed_sha = git(repo, ["rev-parse", "HEAD"])?;
     let base_ref = std::env::var("GITHUB_BASE_REF").ok();
-    let diff_base = base_ref
-        .as_ref()
-        .and_then(|base| git(repo, ["merge-base", "HEAD", &format!("origin/{base}")]).ok());
+    let diff_base = if let Some(base) = base_ref.as_ref() {
+        Some(
+            git(repo, ["merge-base", "HEAD", &format!("origin/{base}")]).with_context(|| {
+                format!(
+                    "failed to find merge-base for origin/{base}; configure actions/checkout with fetch-depth: 0"
+                )
+            })?,
+        )
+    } else {
+        None
+    };
 
     let diff = if let Some(base) = diff_base.as_deref() {
         git(repo, ["diff", "--unified=80", &format!("{base}...HEAD")])?
