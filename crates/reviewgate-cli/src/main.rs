@@ -370,16 +370,26 @@ fn collect_context_files(repo: &Path) -> Result<Vec<ContextFile>> {
         }
         let mut contents = fs::read_to_string(&full_path)
             .with_context(|| format!("failed to read {}", full_path.display()))?;
-        if contents.len() > MAX_CONTEXT_BYTES_PER_FILE {
-            contents.truncate(MAX_CONTEXT_BYTES_PER_FILE);
-            contents.push_str("\n[truncated]\n");
-        }
+        truncate_context_contents(&mut contents, MAX_CONTEXT_BYTES_PER_FILE);
         files.push(ContextFile {
             path: relative.to_string(),
             contents,
         });
     }
     Ok(files)
+}
+
+fn truncate_context_contents(contents: &mut String, max_bytes: usize) {
+    if contents.len() <= max_bytes {
+        return;
+    }
+
+    let truncate_at = (0..=max_bytes)
+        .rev()
+        .find(|&index| contents.is_char_boundary(index))
+        .unwrap_or(0);
+    contents.truncate(truncate_at);
+    contents.push_str("\n[truncated]\n");
 }
 
 fn safe_relative_path(path: &str) -> Option<PathBuf> {
@@ -590,6 +600,15 @@ mod tests {
             safe_relative_path("README.md").as_deref(),
             Some(Path::new("README.md"))
         );
+    }
+
+    #[test]
+    fn truncates_context_on_utf8_char_boundary() {
+        let mut contents = "aaaaébbbb".to_string();
+
+        truncate_context_contents(&mut contents, 5);
+
+        assert_eq!(contents, "aaaa\n[truncated]\n");
     }
 
     #[test]
