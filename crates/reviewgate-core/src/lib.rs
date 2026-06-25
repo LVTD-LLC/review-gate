@@ -14,6 +14,8 @@ pub enum ReviewGateError {
     InvalidConfidence(f64),
     #[error("estimated cost must be finite and non-negative, got {0}")]
     InvalidEstimatedCost(f64),
+    #[error("cost component {field} must not be empty")]
+    InvalidCostComponent { field: &'static str },
     #[error(
         "fail_under must be less than or equal to target_score, got fail_under={fail_under} target_score={target_score}"
     )]
@@ -106,6 +108,12 @@ pub struct CostComponent {
 
 impl CostComponent {
     pub fn validate(&self) -> Result<(), ReviewGateError> {
+        if self.label.trim().is_empty() {
+            return Err(ReviewGateError::InvalidCostComponent { field: "label" });
+        }
+        if self.model.trim().is_empty() {
+            return Err(ReviewGateError::InvalidCostComponent { field: "model" });
+        }
         validate_estimated_cost(self.estimated_cost_usd)
     }
 }
@@ -113,16 +121,12 @@ impl CostComponent {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct CostSummary {
     pub current_run_usd: f64,
-    pub cumulative_pr_usd: Option<f64>,
     pub components: Vec<CostComponent>,
 }
 
 impl CostSummary {
     pub fn validate(&self) -> Result<(), ReviewGateError> {
         validate_estimated_cost(self.current_run_usd)?;
-        if let Some(cost) = self.cumulative_pr_usd {
-            validate_estimated_cost(cost)?;
-        }
         for component in &self.components {
             component.validate()?;
         }
@@ -374,9 +378,6 @@ pub fn render_summary(artifact: &ReviewArtifact) -> Result<String, ReviewGateErr
             "Current run cost: ${:.4}  \n",
             cost_summary.current_run_usd
         ));
-        if let Some(cumulative) = cost_summary.cumulative_pr_usd {
-            output.push_str(&format!("Cumulative PR cost: ${cumulative:.4}  \n"));
-        }
     } else if let Some(cost) = artifact.estimated_cost_usd {
         output.push_str(&format!("Estimated model cost: ${cost:.4}\n"));
     }
@@ -391,9 +392,6 @@ pub fn render_summary(artifact: &ReviewArtifact) -> Result<String, ReviewGateErr
             "- Current run: ${:.4}\n",
             cost_summary.current_run_usd
         ));
-        if let Some(cumulative) = cost_summary.cumulative_pr_usd {
-            output.push_str(&format!("- Cumulative PR: ${cumulative:.4}\n"));
-        }
         if !cost_summary.components.is_empty() {
             output.push_str("- Components:\n");
             for component in &cost_summary.components {
@@ -585,7 +583,6 @@ mod tests {
             estimated_cost_usd: None,
             cost_summary: Some(CostSummary {
                 current_run_usd: 0.0123,
-                cumulative_pr_usd: Some(0.0456),
                 components: vec![CostComponent {
                     label: "general".to_string(),
                     model: "deepseek/deepseek-v4-flash".to_string(),
@@ -601,8 +598,38 @@ mod tests {
         let summary = render_summary(&artifact).expect("summary renders");
 
         assert!(summary.contains("Current run cost: $0.0123"));
-        assert!(summary.contains("Cumulative PR cost: $0.0456"));
         assert!(summary.contains("- general (`deepseek/deepseek-v4-flash`): $0.0123"));
+    }
+
+    #[test]
+    fn validation_rejects_empty_cost_component_model() {
+        let artifact = ReviewArtifact {
+            score: 5,
+            target_score: 5,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Passed,
+            verdict: "Invalid cost component.".to_string(),
+            models: vec!["deepseek/deepseek-v4-flash".to_string()],
+            estimated_cost_usd: None,
+            cost_summary: Some(CostSummary {
+                current_run_usd: 0.0123,
+                components: vec![CostComponent {
+                    label: "general".to_string(),
+                    model: "".to_string(),
+                    prompt_tokens: None,
+                    completion_tokens: None,
+                    estimated_cost_usd: 0.0123,
+                }],
+            }),
+            findings: vec![],
+            notes: vec![],
+        };
+
+        assert!(matches!(
+            artifact.validate(),
+            Err(ReviewGateError::InvalidCostComponent { field: "model" })
+        ));
     }
 
     #[test]

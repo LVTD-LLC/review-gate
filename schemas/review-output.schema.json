@@ -27,10 +27,9 @@
     "cost_summary": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["current_run_usd", "cumulative_pr_usd", "components"],
+      "required": ["current_run_usd", "components"],
       "properties": {
         "current_run_usd": { "type": "number", "minimum": 0 },
-        "cumulative_pr_usd": { "type": ["number", "null"], "minimum": 0 },
         "components": {
           "type": "array",
           "items": { "$ref": "#/$defs/cost_component" }
@@ -49,7 +48,7 @@
   "$defs": {
     "cost_component": {
       "type": "object",
-      "required": ["label", "model", "prompt_tokens", "completion_tokens", "estimated_cost_usd"],
+      "required": ["label", "model", "estimated_cost_usd"],
       "additionalProperties": false,
       "properties": {
         "label": { "type": "string", "minLength": 1 },

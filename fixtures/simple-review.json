@@ -9,7 +9,6 @@
   "estimated_cost_usd": 0.08,
   "cost_summary": {
     "current_run_usd": 0.08,
-    "cumulative_pr_usd": 0.18,
     "components": [
       {
         "label": "general",

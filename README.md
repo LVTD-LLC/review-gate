@@ -132,7 +132,7 @@ The first live action implementation uses the `curl` binary available on GitHub-
 - Config parsing currently reads `target_score` and `fail_under`; richer config support comes later.
 - Context collection supports common instruction files and the PR diff; full repository indexing is intentionally out of scope for v0.
 - Inline comments are not posted yet. The canonical summary comment is the first publishing surface.
-- Cumulative PR cost rendering is modeled in the artifact and summary, but cross-run persistence still needs hidden summary metadata.
+- Current-run cost rendering is modeled in the artifact and summary. Cumulative PR cost needs hidden summary metadata and is tracked as follow-up work.
 - The action should not be used with `pull_request_target` for untrusted code.
 
 ## Repository Layout
