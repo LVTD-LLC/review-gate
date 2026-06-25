@@ -115,10 +115,10 @@ impl ReviewArtifact {
 
     pub fn with_computed_score(mut self) -> Result<Self, ReviewGateError> {
         self.score = compute_score(&self.findings);
-        self.status = if self.score >= self.target_score {
-            ReviewStatus::Passed
-        } else if self.score < self.fail_under {
+        self.status = if self.score < self.fail_under {
             ReviewStatus::Failed
+        } else if self.score >= self.target_score {
+            ReviewStatus::Passed
         } else {
             ReviewStatus::NeedsChanges
         };
@@ -405,6 +405,38 @@ mod tests {
             .expect("computed artifact is valid");
 
         assert_eq!(artifact.score, 3);
+        assert_eq!(artifact.status, ReviewStatus::Failed);
+    }
+
+    #[test]
+    fn computed_status_treats_fail_under_as_hard_floor() {
+        let artifact = ReviewArtifact {
+            score: 5,
+            target_score: 2,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Passed,
+            verdict: "Target score cannot bypass the failure threshold.".to_string(),
+            models: vec!["balanced".to_string()],
+            estimated_cost_usd: None,
+            findings: vec![Finding {
+                id: "rg_001".to_string(),
+                severity: Severity::P1,
+                confidence: 0.95,
+                file: Some("src/lib.rs".to_string()),
+                line: Some(42),
+                title: "Security issue".to_string(),
+                detail: None,
+                agent_instruction: "Fix the security issue.".to_string(),
+            }],
+            notes: vec![],
+        };
+
+        let artifact = artifact
+            .with_computed_score()
+            .expect("computed artifact is valid");
+
+        assert_eq!(artifact.score, 2);
         assert_eq!(artifact.status, ReviewStatus::Failed);
     }
 
