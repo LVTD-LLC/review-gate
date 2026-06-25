@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub const SUMMARY_MARKER: &str = "<!-- review-gate-summary -->";
+pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
+pub const OPENROUTER_CHAT_COMPLETIONS_PATH: &str = "/chat/completions";
+pub const OPENROUTER_DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
 
 #[derive(Debug, Error)]
 pub enum ReviewGateError {
@@ -159,6 +162,156 @@ pub fn compute_score(findings: &[Finding]) -> u8 {
         .map(|finding| finding.severity.score_ceiling())
         .min()
         .unwrap_or(5)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelPreset {
+    Cheap,
+    Balanced,
+    Strong,
+}
+
+impl ModelPreset {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelPreset::Cheap => "cheap",
+            ModelPreset::Balanced => "balanced",
+            ModelPreset::Strong => "strong",
+        }
+    }
+
+    pub fn default_model(&self) -> &'static str {
+        match self {
+            ModelPreset::Cheap => "openai/gpt-4.1-mini",
+            ModelPreset::Balanced => "openai/gpt-4.1",
+            ModelPreset::Strong => "anthropic/claude-sonnet-4",
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SecretString(String);
+
+impl SecretString {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for SecretString {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SecretString([redacted])")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenRouterConfig {
+    pub base_url: String,
+    pub api_key: SecretString,
+    pub model: String,
+}
+
+impl OpenRouterConfig {
+    pub fn byok(api_key: impl Into<String>, preset: ModelPreset) -> Self {
+        Self {
+            base_url: OPENROUTER_DEFAULT_BASE_URL.to_string(),
+            api_key: SecretString::new(api_key),
+            model: preset.default_model().to_string(),
+        }
+    }
+
+    pub fn bearer_header(&self) -> String {
+        format!("Bearer {}", self.api_key.expose())
+    }
+
+    pub fn chat_completions_url(&self) -> String {
+        format!(
+            "{}{}",
+            self.base_url.trim_end_matches('/'),
+            OPENROUTER_CHAT_COMPLETIONS_PATH
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OpenRouterMessage {
+    pub role: String,
+    pub content: String,
+}
+
+impl OpenRouterMessage {
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OpenRouterChatRequest {
+    pub model: String,
+    pub messages: Vec<OpenRouterMessage>,
+    pub temperature: f64,
+}
+
+impl OpenRouterChatRequest {
+    pub fn review_prompt(config: &OpenRouterConfig, prompt: impl Into<String>) -> Self {
+        Self {
+            model: config.model.clone(),
+            messages: vec![
+                OpenRouterMessage::system(
+                    "You are Review Gate. Return concise, actionable PR review findings.",
+                ),
+                OpenRouterMessage::user(prompt),
+            ],
+            temperature: 0.0,
+        }
+    }
+}
+
+pub trait OpenRouterTransport {
+    type Error;
+
+    fn send_chat_completion(
+        &mut self,
+        config: &OpenRouterConfig,
+        request: &OpenRouterChatRequest,
+    ) -> Result<String, Self::Error>;
+}
+
+#[derive(Debug)]
+pub struct OpenRouterClient<T> {
+    config: OpenRouterConfig,
+    transport: T,
+}
+
+impl<T> OpenRouterClient<T> {
+    pub fn new(config: OpenRouterConfig, transport: T) -> Self {
+        Self { config, transport }
+    }
+
+    pub fn config(&self) -> &OpenRouterConfig {
+        &self.config
+    }
+}
+
+impl<T: OpenRouterTransport> OpenRouterClient<T> {
+    pub fn review_prompt(&mut self, prompt: impl Into<String>) -> Result<String, T::Error> {
+        let request = OpenRouterChatRequest::review_prompt(&self.config, prompt);
+        self.transport.send_chat_completion(&self.config, &request)
+    }
 }
 
 pub fn render_summary(artifact: &ReviewArtifact) -> Result<String, ReviewGateError> {
@@ -554,5 +707,70 @@ mod tests {
         assert!(summary.contains("## Blocking Findings\n\nNone."));
         assert!(summary.contains("- P2: Missing regression test"));
         assert!(!summary.contains("Fix the blocking findings first."));
+    }
+
+    #[test]
+    fn model_presets_have_explicit_defaults() {
+        assert_eq!(ModelPreset::Cheap.as_str(), "cheap");
+        assert_eq!(ModelPreset::Cheap.default_model(), "openai/gpt-4.1-mini");
+        assert_eq!(ModelPreset::Balanced.default_model(), "openai/gpt-4.1");
+        assert_eq!(
+            ModelPreset::Strong.default_model(),
+            "anthropic/claude-sonnet-4"
+        );
+    }
+
+    #[test]
+    fn openrouter_secret_debug_is_redacted() {
+        let config = OpenRouterConfig::byok("sk-or-secret", ModelPreset::Balanced);
+
+        assert_eq!(config.bearer_header(), "Bearer sk-or-secret");
+        assert_eq!(
+            config.chat_completions_url(),
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(format!("{:?}", config.api_key), "SecretString([redacted])");
+        assert!(!format!("{config:?}").contains("sk-or-secret"));
+    }
+
+    #[derive(Debug, Default)]
+    struct MockOpenRouterTransport {
+        seen_model: Option<String>,
+        seen_auth: Option<String>,
+    }
+
+    impl OpenRouterTransport for MockOpenRouterTransport {
+        type Error = std::convert::Infallible;
+
+        fn send_chat_completion(
+            &mut self,
+            config: &OpenRouterConfig,
+            request: &OpenRouterChatRequest,
+        ) -> Result<String, Self::Error> {
+            self.seen_model = Some(request.model.clone());
+            self.seen_auth = Some(config.bearer_header());
+            Ok("mock review".to_string())
+        }
+    }
+
+    #[test]
+    fn openrouter_client_uses_mockable_transport_without_logging_secret() {
+        let transport = MockOpenRouterTransport::default();
+        let config = OpenRouterConfig::byok("sk-or-secret", ModelPreset::Cheap);
+        let mut client = OpenRouterClient::new(config, transport);
+
+        let response = client
+            .review_prompt("Review this diff")
+            .expect("mock transport succeeds");
+
+        assert_eq!(response, "mock review");
+        assert_eq!(
+            client.transport.seen_model.as_deref(),
+            Some("openai/gpt-4.1-mini")
+        );
+        assert_eq!(
+            client.transport.seen_auth.as_deref(),
+            Some("Bearer sk-or-secret")
+        );
     }
 }

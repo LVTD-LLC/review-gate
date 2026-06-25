@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added OpenRouter BYOK model-client boundary types with redacted secret handling, explicit model presets, and mocked transport tests.
+- Added GitHub canonical summary upsert planning with create/update/no-op behavior and mocked publisher tests.
+- Expanded the public agent-loop contract for JSON artifacts, canonical summary fallback, status handling, and stop conditions.
 - Added Rust-side review artifact validation, summary status output, lockfile audit/provenance documentation, and cleaned Review Gate context file references.
 - Kept docs, agent workflow guidance, CI commands, and summary rendering aligned with Rust 1.96, Rust 2024, locked dependency use, and dynamic fail-under thresholds.
 - Aligned the review artifact status computation and CLI exit behavior with the configured fail-under threshold, and pinned CI setup to auditable toolchain inputs.
