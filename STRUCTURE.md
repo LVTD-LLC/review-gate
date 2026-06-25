@@ -13,6 +13,7 @@ prompts/                     Built-in review stage prompts
 schemas/                     JSON artifact schemas
 fixtures/                    Golden review fixtures and deterministic examples
 skills/reviewgate-loop/      Public agent loop skill draft
+.reviewgate/                 Local generated review artifacts; do not commit by default
 .github/workflows/           CI and repository automation
 ```
 

@@ -37,17 +37,13 @@ cargo test --workspace
 Fixture milestone:
 
 ```bash
-cargo run -p reviewgate-cli -- fixture-review --input fixtures/simple-review.json
-```
-
-Write local JSON and Markdown artifacts:
-
-```bash
 cargo run -p reviewgate-cli -- fixture-review \
   --input fixtures/simple-review.json \
   --json-out .reviewgate/review.json \
   --summary-out .reviewgate/summary.md
 ```
+
+This is the CI-required artifact-writing form. The shorter stdout-only form is useful for manual inspection, but it does not verify artifact output paths.
 
 ## CI
 
