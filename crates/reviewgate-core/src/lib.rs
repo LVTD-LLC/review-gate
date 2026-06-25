@@ -11,6 +11,10 @@ pub enum ReviewGateError {
     InvalidConfidence(f64),
     #[error("estimated cost must be finite and non-negative, got {0}")]
     InvalidEstimatedCost(f64),
+    #[error(
+        "fail_under must be less than or equal to target_score, got fail_under={fail_under} target_score={target_score}"
+    )]
+    InvalidThreshold { fail_under: u8, target_score: u8 },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -104,6 +108,12 @@ impl ReviewArtifact {
         validate_score(self.score)?;
         validate_score(self.target_score)?;
         validate_score(self.fail_under)?;
+        if self.fail_under > self.target_score {
+            return Err(ReviewGateError::InvalidThreshold {
+                fail_under: self.fail_under,
+                target_score: self.target_score,
+            });
+        }
         if let Some(cost) = self.estimated_cost_usd {
             validate_estimated_cost(cost)?;
         }
@@ -412,7 +422,7 @@ mod tests {
     fn computed_status_treats_fail_under_as_hard_floor() {
         let artifact = ReviewArtifact {
             score: 5,
-            target_score: 2,
+            target_score: 4,
             fail_under: 4,
             reviewed_sha: "abc123".to_string(),
             status: ReviewStatus::Passed,
@@ -438,6 +448,30 @@ mod tests {
 
         assert_eq!(artifact.score, 2);
         assert_eq!(artifact.status, ReviewStatus::Failed);
+    }
+
+    #[test]
+    fn validation_rejects_fail_under_above_target_score() {
+        let artifact = ReviewArtifact {
+            score: 5,
+            target_score: 2,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Passed,
+            verdict: "Invalid thresholds.".to_string(),
+            models: vec!["balanced".to_string()],
+            estimated_cost_usd: None,
+            findings: vec![],
+            notes: vec![],
+        };
+
+        assert!(matches!(
+            artifact.validate(),
+            Err(ReviewGateError::InvalidThreshold {
+                fail_under: 4,
+                target_score: 2
+            })
+        ));
     }
 
     #[test]
