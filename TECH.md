@@ -55,6 +55,7 @@ Required CI steps:
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`
 - `cargo test --locked --workspace`
 - fixture render command with `.reviewgate/review.json` and `.reviewgate/summary.md` outputs
+- `cargo audit`
 
 ## Integration Boundaries
 

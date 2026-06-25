@@ -31,6 +31,7 @@ cargo fmt --all --check
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo test --locked --workspace
 cargo run --locked -p reviewgate-cli -- fixture-review --input fixtures/simple-review.json --json-out .reviewgate/review.json --summary-out .reviewgate/summary.md
+cargo audit
 ```
 
 The fixture command writes generated artifacts under `.reviewgate/`. Do not commit those local outputs unless a task explicitly asks for sample generated output.

@@ -5,7 +5,7 @@ author: LVTD
 inputs:
   openrouter_api_key:
     description: OpenRouter API key used for model-backed review stages.
-    required: true
+    required: false
   config:
     description: Path to Review Gate config.
     required: false
@@ -28,4 +28,3 @@ runs:
         set -euo pipefail
         echo "Review Gate action wrapper is scaffolded."
         echo "OpenRouter-backed CI review will be implemented after the fixture milestone."
-

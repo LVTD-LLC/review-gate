@@ -6,9 +6,10 @@ review:
   max_inline_comments: 12
   context_files:
     - AGENTS.md
-    - CLAUDE.md
     - README.md
-    - CONTRIBUTING.md
+    - TECH.md
+    - PRODUCT.md
+    - STRUCTURE.md
     - docs/**/*.md
 
 models:
@@ -25,4 +26,3 @@ stages:
     prompt: builtin:security
     model: preset:strong
     severity_floor: P1
-

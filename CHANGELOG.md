@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added Rust-side review artifact validation, summary status output, lockfile audit/provenance documentation, and cleaned Review Gate context file references.
 - Kept docs, agent workflow guidance, CI commands, and summary rendering aligned with Rust 1.96, Rust 2024, locked dependency use, and dynamic fail-under thresholds.
 - Aligned the review artifact status computation and CLI exit behavior with the configured fail-under threshold, and pinned CI setup to auditable toolchain inputs.
 - Added repo steering files for coding agents, product constraints, technical context, and repository structure.

@@ -77,3 +77,5 @@ skills/reviewgate-loop/      Public agent loop skill draft
 ## Security Posture
 
 Review Gate treats model output as untrusted text. The default workflow reviews diffs and context; it does not run arbitrary PR code and should not use `pull_request_target` for untrusted forks. GitHub token permissions should stay least-privilege.
+
+Dependency provenance notes for the checked-in lockfile live in `docs/dependency-provenance.md`.

@@ -7,6 +7,10 @@ pub const SUMMARY_MARKER: &str = "<!-- review-gate-summary -->";
 pub enum ReviewGateError {
     #[error("score must be between 0 and 5, got {0}")]
     InvalidScore(u8),
+    #[error("confidence must be between 0 and 1, got {0}")]
+    InvalidConfidence(f64),
+    #[error("estimated cost must be finite and non-negative, got {0}")]
+    InvalidEstimatedCost(f64),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -15,6 +19,16 @@ pub enum ReviewStatus {
     Passed,
     NeedsChanges,
     Failed,
+}
+
+impl ReviewStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReviewStatus::Passed => "passed",
+            ReviewStatus::NeedsChanges => "needs_changes",
+            ReviewStatus::Failed => "failed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -49,7 +63,7 @@ impl Severity {
 pub struct Finding {
     pub id: String,
     pub severity: Severity,
-    pub confidence: f32,
+    pub confidence: f64,
     pub file: Option<String>,
     pub line: Option<u32>,
     pub title: String,
@@ -60,6 +74,14 @@ pub struct Finding {
 impl Finding {
     pub fn is_blocking(&self, fail_under: u8) -> bool {
         self.severity.score_ceiling() < fail_under
+    }
+
+    pub fn validate(&self) -> Result<(), ReviewGateError> {
+        if (0.0..=1.0).contains(&self.confidence) {
+            Ok(())
+        } else {
+            Err(ReviewGateError::InvalidConfidence(self.confidence))
+        }
     }
 }
 
@@ -72,7 +94,7 @@ pub struct ReviewArtifact {
     pub status: ReviewStatus,
     pub verdict: String,
     pub models: Vec<String>,
-    pub estimated_cost_usd: Option<f32>,
+    pub estimated_cost_usd: Option<f64>,
     pub findings: Vec<Finding>,
     pub notes: Vec<String>,
 }
@@ -82,6 +104,12 @@ impl ReviewArtifact {
         validate_score(self.score)?;
         validate_score(self.target_score)?;
         validate_score(self.fail_under)?;
+        if let Some(cost) = self.estimated_cost_usd {
+            validate_estimated_cost(cost)?;
+        }
+        for finding in &self.findings {
+            finding.validate()?;
+        }
         Ok(())
     }
 
@@ -107,6 +135,14 @@ pub fn validate_score(score: u8) -> Result<(), ReviewGateError> {
     }
 }
 
+pub fn validate_estimated_cost(cost: f64) -> Result<(), ReviewGateError> {
+    if cost.is_finite() && cost >= 0.0 {
+        Ok(())
+    } else {
+        Err(ReviewGateError::InvalidEstimatedCost(cost))
+    }
+}
+
 pub fn compute_score(findings: &[Finding]) -> u8 {
     findings
         .iter()
@@ -123,6 +159,7 @@ pub fn render_summary(artifact: &ReviewArtifact) -> Result<String, ReviewGateErr
     output.push_str("\n\n");
     output.push_str(&format!("# Review Gate: {}/5\n\n", artifact.score));
     output.push_str(&format!("Reviewed commit: `{}`  \n", artifact.reviewed_sha));
+    output.push_str(&format!("Status: `{}`  \n", artifact.status.as_str()));
     output.push_str(&format!("Target: {}/5  \n", artifact.target_score));
     output.push_str(&format!("Fail under: {}/5  \n", artifact.fail_under));
     output.push_str(&format!("Models: {}  \n", artifact.models.join(", ")));
@@ -369,6 +406,57 @@ mod tests {
 
         assert_eq!(artifact.score, 3);
         assert_eq!(artifact.status, ReviewStatus::Failed);
+    }
+
+    #[test]
+    fn validation_rejects_out_of_range_confidence() {
+        let artifact = ReviewArtifact {
+            score: 5,
+            target_score: 5,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Passed,
+            verdict: "Invalid finding confidence.".to_string(),
+            models: vec!["balanced".to_string()],
+            estimated_cost_usd: None,
+            findings: vec![Finding {
+                id: "rg_001".to_string(),
+                severity: Severity::P4,
+                confidence: 1.2,
+                file: None,
+                line: None,
+                title: "Invalid confidence".to_string(),
+                detail: None,
+                agent_instruction: "Fix the confidence value.".to_string(),
+            }],
+            notes: vec![],
+        };
+
+        assert!(matches!(
+            artifact.validate(),
+            Err(ReviewGateError::InvalidConfidence(value)) if value == 1.2
+        ));
+    }
+
+    #[test]
+    fn validation_rejects_negative_estimated_cost() {
+        let artifact = ReviewArtifact {
+            score: 5,
+            target_score: 5,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Passed,
+            verdict: "Invalid cost.".to_string(),
+            models: vec!["balanced".to_string()],
+            estimated_cost_usd: Some(-0.01),
+            findings: vec![],
+            notes: vec![],
+        };
+
+        assert!(matches!(
+            artifact.validate(),
+            Err(ReviewGateError::InvalidEstimatedCost(value)) if value == -0.01
+        ));
     }
 
     #[test]
