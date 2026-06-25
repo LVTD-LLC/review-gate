@@ -58,6 +58,7 @@ runs:
 
     - name: Publish Review Gate summary
       shell: bash
+      continue-on-error: true
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
