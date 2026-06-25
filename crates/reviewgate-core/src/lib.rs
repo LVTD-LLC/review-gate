@@ -176,8 +176,7 @@ pub fn render_summary(artifact: &ReviewArtifact) -> Result<String, ReviewGateErr
         }
         output.push('\n');
         if blocking.is_empty() {
-            output
-                .push_str("No blocking findings remain. Re-run Review Gate if new commits land.\n");
+            output.push_str("Re-run Review Gate after pushing if new commits land.\n");
         } else {
             output.push_str("Fix the blocking findings first. Re-run Review Gate after pushing.\n");
         }
@@ -309,7 +308,7 @@ mod tests {
         let summary = render_summary(&artifact).expect("summary renders");
 
         assert!(summary.contains("1. P3: Clarify the README example."));
-        assert!(summary.contains("No blocking findings remain."));
+        assert!(summary.contains("Re-run Review Gate after pushing if new commits land."));
         assert!(!summary.contains("Fix the blocking findings first."));
     }
 }
