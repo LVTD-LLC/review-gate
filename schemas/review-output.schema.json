@@ -24,6 +24,18 @@
       "items": { "type": "string", "minLength": 1 }
     },
     "estimated_cost_usd": { "type": ["number", "null"], "minimum": 0 },
+    "cost_summary": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["current_run_usd", "components"],
+      "properties": {
+        "current_run_usd": { "type": "number", "minimum": 0 },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/cost_component" }
+        }
+      }
+    },
     "findings": {
       "type": "array",
       "items": { "$ref": "#/$defs/finding" }
@@ -34,13 +46,25 @@
     }
   },
   "$defs": {
+    "cost_component": {
+      "type": "object",
+      "required": ["label", "model", "estimated_cost_usd"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "prompt_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "completion_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "estimated_cost_usd": { "type": "number", "minimum": 0 }
+      }
+    },
     "finding": {
       "type": "object",
       "required": ["id", "severity", "confidence", "file", "line", "title", "detail", "agent_instruction"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "severity": { "type": "string", "enum": ["P1", "P2", "P3", "P4"] },
+        "severity": { "type": "string", "enum": ["P0", "P1", "P2", "P3", "P4"] },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "file": { "type": ["string", "null"] },
         "line": { "type": ["integer", "null"], "minimum": 1 },

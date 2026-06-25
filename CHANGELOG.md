@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added Review UX and Control v1 dogfood notes and design guidance for review-only semantics, trigger/recheck choices, model defaults, cost display, severity visibility, and secure workflow behavior.
+- Added `P0` severity support, structured cost summary metadata, and cost rendering in canonical summaries.
+- Updated OpenRouter preset defaults to prefer price-to-value models: `qwen/qwen3-coder` for cheap and `deepseek/deepseek-v4-flash` for balanced.
 - Added the first live `review-pr` CLI path for PR diff/context collection, OpenRouter artifact parsing, summary/artifact output, configurable exit semantics, and mock-artifact dry runs.
 - Wired the GitHub Action to run the live CLI path, publish a step summary, and upsert one canonical PR summary comment.
 - Added a dogfood Review Gate workflow and v0.1.0 release-readiness checklist.

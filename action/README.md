@@ -10,6 +10,8 @@ Implementation scripts and release download helpers can live in this directory a
 
 The composite action stays thin: it collects inputs from GitHub Actions, passes them to the Rust binary, and lets the Rust crates own review logic, scoring, OpenRouter request construction, artifact validation, and summary rendering.
 
+The action is review-only. It publishes findings and status, but it does not run an autonomous code repair loop inside CI.
+
 Required installation permissions:
 
 ```yaml
@@ -35,8 +37,16 @@ The action must update the existing PR summary comment containing `<!-- review-g
 - `target_score`: Score required for a fully passing review. Defaults to `5`.
 - `fail_under`: Score floor that fails CI. Defaults to `4`.
 - `report_only`: Publish results without failing CI. Defaults to `false`.
+- `preset`: OpenRouter model preset used when `model` is not pinned. Defaults to `balanced`.
+- `model`: Exact OpenRouter model id. Defaults to the selected preset model.
 - `mock_artifact`: Optional artifact path for dry-run workflows.
+
+`fail_under` controls workflow/check behavior. It is not required for teams using Review Gate only as a report; set `report_only: "true"` for that mode.
 
 ## Runtime
 
 The composite action runs the Rust CLI from the action checkout, writes `.reviewgate/review.json` and `.reviewgate/summary.md` into the repository workspace, appends the summary to the GitHub Actions step summary, and upserts one canonical PR summary comment when running on a pull request.
+
+## Trigger Guidance
+
+The simplest install runs on PR updates and `workflow_dispatch`. Teams that want tighter cost control can use manual dispatch now and add an explicit recheck command or CLI helper as that surface matures.

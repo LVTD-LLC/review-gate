@@ -4,7 +4,7 @@ This file is the repo-wide contract for coding agents working on Review Gate.
 
 ## Project Summary
 
-Review Gate is an open-source, GitHub Actions-first, OpenRouter/BYOK PR review gate for agent-written pull requests. The core artifact is a visible `0-5` score, one canonical PR summary comment, and structured JSON that lets agents loop until a PR reaches the target score.
+Review Gate is an open-source, GitHub Actions-first, OpenRouter/BYOK PR review gate for agent-written pull requests. The core artifact is a visible `0-5` score, one canonical PR summary comment, and structured JSON that humans or external agents can use to decide what to fix next.
 
 Read these steering files before changing code:
 

@@ -14,6 +14,8 @@ pub enum ReviewGateError {
     InvalidConfidence(f64),
     #[error("estimated cost must be finite and non-negative, got {0}")]
     InvalidEstimatedCost(f64),
+    #[error("cost component {field} must not be empty")]
+    InvalidCostComponent { field: &'static str },
     #[error(
         "fail_under must be less than or equal to target_score, got fail_under={fail_under} target_score={target_score}"
     )]
@@ -40,6 +42,7 @@ impl ReviewStatus {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub enum Severity {
+    P0,
     P1,
     P2,
     P3,
@@ -49,6 +52,7 @@ pub enum Severity {
 impl Severity {
     pub fn score_ceiling(&self) -> u8 {
         match self {
+            Severity::P0 => 1,
             Severity::P1 => 2,
             Severity::P2 => 3,
             Severity::P3 => 4,
@@ -58,6 +62,7 @@ impl Severity {
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            Severity::P0 => "P0",
             Severity::P1 => "P1",
             Severity::P2 => "P2",
             Severity::P3 => "P3",
@@ -93,6 +98,43 @@ impl Finding {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct CostComponent {
+    pub label: String,
+    pub model: String,
+    pub prompt_tokens: Option<u64>,
+    pub completion_tokens: Option<u64>,
+    pub estimated_cost_usd: f64,
+}
+
+impl CostComponent {
+    pub fn validate(&self) -> Result<(), ReviewGateError> {
+        if self.label.trim().is_empty() {
+            return Err(ReviewGateError::InvalidCostComponent { field: "label" });
+        }
+        if self.model.trim().is_empty() {
+            return Err(ReviewGateError::InvalidCostComponent { field: "model" });
+        }
+        validate_estimated_cost(self.estimated_cost_usd)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct CostSummary {
+    pub current_run_usd: f64,
+    pub components: Vec<CostComponent>,
+}
+
+impl CostSummary {
+    pub fn validate(&self) -> Result<(), ReviewGateError> {
+        validate_estimated_cost(self.current_run_usd)?;
+        for component in &self.components {
+            component.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ReviewArtifact {
     pub score: u8,
     pub target_score: u8,
@@ -102,6 +144,8 @@ pub struct ReviewArtifact {
     pub verdict: String,
     pub models: Vec<String>,
     pub estimated_cost_usd: Option<f64>,
+    #[serde(default)]
+    pub cost_summary: Option<CostSummary>,
     pub findings: Vec<Finding>,
     pub notes: Vec<String>,
 }
@@ -119,6 +163,9 @@ impl ReviewArtifact {
         }
         if let Some(cost) = self.estimated_cost_usd {
             validate_estimated_cost(cost)?;
+        }
+        if let Some(cost_summary) = &self.cost_summary {
+            cost_summary.validate()?;
         }
         for finding in &self.findings {
             finding.validate()?;
@@ -182,8 +229,8 @@ impl ModelPreset {
 
     pub fn default_model(&self) -> &'static str {
         match self {
-            ModelPreset::Cheap => "openai/gpt-4.1-mini",
-            ModelPreset::Balanced => "openai/gpt-4.1",
+            ModelPreset::Cheap => "qwen/qwen3-coder",
+            ModelPreset::Balanced => "deepseek/deepseek-v4-flash",
             ModelPreset::Strong => "anthropic/claude-sonnet-4",
         }
     }
@@ -326,13 +373,44 @@ pub fn render_summary(artifact: &ReviewArtifact) -> Result<String, ReviewGateErr
     output.push_str(&format!("Target: {}/5  \n", artifact.target_score));
     output.push_str(&format!("Fail under: {}/5  \n", artifact.fail_under));
     output.push_str(&format!("Models: {}  \n", artifact.models.join(", ")));
-    if let Some(cost) = artifact.estimated_cost_usd {
-        output.push_str(&format!("Estimated model cost: ${cost:.2}\n"));
+    if let Some(cost_summary) = &artifact.cost_summary {
+        output.push_str(&format!(
+            "Current run cost: ${:.4}  \n",
+            cost_summary.current_run_usd
+        ));
+    } else if let Some(cost) = artifact.estimated_cost_usd {
+        output.push_str(&format!("Estimated model cost: ${cost:.4}\n"));
     }
     output.push('\n');
     output.push_str("## Verdict\n\n");
     output.push_str(&artifact.verdict);
     output.push_str("\n\n");
+
+    if let Some(cost_summary) = &artifact.cost_summary {
+        output.push_str("## Cost\n\n");
+        output.push_str(&format!(
+            "- Current run: ${:.4}\n",
+            cost_summary.current_run_usd
+        ));
+        if !cost_summary.components.is_empty() {
+            output.push_str("- Components:\n");
+            for component in &cost_summary.components {
+                output.push_str(&format!(
+                    "  - {} (`{}`): ${:.4}",
+                    component.label, component.model, component.estimated_cost_usd
+                ));
+                if let (Some(prompt), Some(completion)) =
+                    (component.prompt_tokens, component.completion_tokens)
+                {
+                    output.push_str(&format!(
+                        " ({prompt} prompt, {completion} completion tokens)"
+                    ));
+                }
+                output.push('\n');
+            }
+        }
+        output.push('\n');
+    }
 
     let blocking: Vec<&Finding> = artifact
         .findings
@@ -428,6 +506,22 @@ mod tests {
     }
 
     #[test]
+    fn p0_findings_cap_score_at_one() {
+        let findings = vec![Finding {
+            id: "rg_001".to_string(),
+            severity: Severity::P0,
+            confidence: 0.98,
+            file: Some("src/auth.rs".to_string()),
+            line: Some(7),
+            title: "Authentication bypass".to_string(),
+            detail: None,
+            agent_instruction: "Fix the bypass before merge.".to_string(),
+        }];
+
+        assert_eq!(compute_score(&findings), 1);
+    }
+
+    #[test]
     fn computes_score_without_relying_on_enum_ordering() {
         let findings = vec![
             Finding {
@@ -466,6 +560,7 @@ mod tests {
             verdict: "Good shape, one minor issue remains.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: Some(0.08),
+            cost_summary: None,
             findings: vec![],
             notes: vec![],
         };
@@ -473,6 +568,68 @@ mod tests {
         let summary = render_summary(&artifact).expect("summary renders");
         assert!(summary.starts_with(SUMMARY_MARKER));
         assert!(summary.contains("# Review Gate: 4/5"));
+    }
+
+    #[test]
+    fn renders_structured_cost_summary() {
+        let artifact = ReviewArtifact {
+            score: 5,
+            target_score: 5,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Passed,
+            verdict: "Clean review.".to_string(),
+            models: vec!["deepseek/deepseek-v4-flash".to_string()],
+            estimated_cost_usd: None,
+            cost_summary: Some(CostSummary {
+                current_run_usd: 0.0123,
+                components: vec![CostComponent {
+                    label: "general".to_string(),
+                    model: "deepseek/deepseek-v4-flash".to_string(),
+                    prompt_tokens: Some(1200),
+                    completion_tokens: Some(300),
+                    estimated_cost_usd: 0.0123,
+                }],
+            }),
+            findings: vec![],
+            notes: vec![],
+        };
+
+        let summary = render_summary(&artifact).expect("summary renders");
+
+        assert!(summary.contains("Current run cost: $0.0123"));
+        assert!(summary.contains("- general (`deepseek/deepseek-v4-flash`): $0.0123"));
+    }
+
+    #[test]
+    fn validation_rejects_empty_cost_component_model() {
+        let artifact = ReviewArtifact {
+            score: 5,
+            target_score: 5,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Passed,
+            verdict: "Invalid cost component.".to_string(),
+            models: vec!["deepseek/deepseek-v4-flash".to_string()],
+            estimated_cost_usd: None,
+            cost_summary: Some(CostSummary {
+                current_run_usd: 0.0123,
+                components: vec![CostComponent {
+                    label: "general".to_string(),
+                    model: "".to_string(),
+                    prompt_tokens: None,
+                    completion_tokens: None,
+                    estimated_cost_usd: 0.0123,
+                }],
+            }),
+            findings: vec![],
+            notes: vec![],
+        };
+
+        assert!(matches!(
+            artifact.validate(),
+            Err(ReviewGateError::InvalidCostComponent { field: "model" })
+        ));
     }
 
     #[test]
@@ -486,6 +643,7 @@ mod tests {
             verdict: "One blocking issue remains.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: None,
+            cost_summary: None,
             findings: vec![Finding {
                 id: "rg_001".to_string(),
                 severity: Severity::P2,
@@ -519,6 +677,7 @@ mod tests {
             verdict: "One advisory issue remains.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: None,
+            cost_summary: None,
             findings: vec![Finding {
                 id: "rg_001".to_string(),
                 severity: Severity::P3,
@@ -550,6 +709,7 @@ mod tests {
             verdict: "One blocking issue remains.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: None,
+            cost_summary: None,
             findings: vec![Finding {
                 id: "rg_001".to_string(),
                 severity: Severity::P2,
@@ -582,6 +742,7 @@ mod tests {
             verdict: "Target score cannot bypass the failure threshold.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: None,
+            cost_summary: None,
             findings: vec![Finding {
                 id: "rg_001".to_string(),
                 severity: Severity::P1,
@@ -614,6 +775,7 @@ mod tests {
             verdict: "Invalid thresholds.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: None,
+            cost_summary: None,
             findings: vec![],
             notes: vec![],
         };
@@ -638,6 +800,7 @@ mod tests {
             verdict: "Invalid finding confidence.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: None,
+            cost_summary: None,
             findings: vec![Finding {
                 id: "rg_001".to_string(),
                 severity: Severity::P4,
@@ -668,6 +831,7 @@ mod tests {
             verdict: "Invalid cost.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: Some(-0.01),
+            cost_summary: None,
             findings: vec![],
             notes: vec![],
         };
@@ -689,6 +853,7 @@ mod tests {
             verdict: "One recoverable issue remains.".to_string(),
             models: vec!["balanced".to_string()],
             estimated_cost_usd: None,
+            cost_summary: None,
             findings: vec![Finding {
                 id: "rg_001".to_string(),
                 severity: Severity::P2,
@@ -712,8 +877,11 @@ mod tests {
     #[test]
     fn model_presets_have_explicit_defaults() {
         assert_eq!(ModelPreset::Cheap.as_str(), "cheap");
-        assert_eq!(ModelPreset::Cheap.default_model(), "openai/gpt-4.1-mini");
-        assert_eq!(ModelPreset::Balanced.default_model(), "openai/gpt-4.1");
+        assert_eq!(ModelPreset::Cheap.default_model(), "qwen/qwen3-coder");
+        assert_eq!(
+            ModelPreset::Balanced.default_model(),
+            "deepseek/deepseek-v4-flash"
+        );
         assert_eq!(
             ModelPreset::Strong.default_model(),
             "anthropic/claude-sonnet-4"
@@ -766,7 +934,7 @@ mod tests {
         assert_eq!(response, "mock review");
         assert_eq!(
             client.transport.seen_model.as_deref(),
-            Some("openai/gpt-4.1-mini")
+            Some("qwen/qwen3-coder")
         );
         assert_eq!(
             client.transport.seen_auth.as_deref(),
