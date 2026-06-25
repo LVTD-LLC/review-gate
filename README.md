@@ -2,7 +2,9 @@
 
 Open-source AI review gates for agent-written PRs.
 
-Review Gate is a GitHub Actions-first, OpenRouter/BYOK PR review tool. The goal is simple: every PR gets a visible 0-5 review score, one canonical summary comment that updates in place, and machine-readable JSON so coding agents can iterate until the score reaches the target.
+Review Gate is a GitHub Actions-first, OpenRouter/BYOK PR review tool. The goal is simple: every PR gets a visible 0-5 review score, one canonical summary comment that updates in place, and machine-readable JSON that humans or external coding agents can use to decide what to fix next.
+
+Review Gate itself is review-only. It does not autonomously repair code inside CI.
 
 This repository is in an early build milestone. The current CLI can validate and render deterministic review artifacts from fixture JSON, and the GitHub Action can run a live pull request review from CI when `OPENROUTER_API_KEY` is configured.
 
@@ -13,9 +15,10 @@ This repository is in an early build milestone. The current CLI can validate and
 - Uses OpenRouter/BYOK for model calls.
 - Keeps one PR summary comment updated with `<!-- review-gate-summary -->`.
 - Emits a visible score like `Review Gate: 4/5`.
-- Produces a JSON artifact for agent loops.
+- Produces a JSON artifact for humans and external agent loops.
 - Posts inline comments only for high-confidence, line-specific findings.
 - Creates a GitHub check run based on a configurable threshold.
+- Shows model cost in the review artifact and summary.
 
 ## GitHub Action
 
@@ -43,6 +46,7 @@ jobs:
       - uses: LVTD-LLC/review-gate@v0
         with:
           openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          preset: balanced
 ```
 
 The action:
@@ -55,6 +59,8 @@ The action:
 - appends the summary to the GitHub Actions step summary;
 - creates or updates one PR comment containing `<!-- review-gate-summary -->`;
 - exits non-zero when `score < fail_under`, unless `report_only: "true"` is set.
+
+The default workflow runs on PR updates because that is the lowest-friction install path. For teams that want tighter cost control, the next control surface is an explicit recheck path such as `workflow_dispatch`, a PR comment command, or a CLI helper.
 
 ## Local Milestone
 
@@ -95,14 +101,14 @@ OPENROUTER_API_KEY=sk-or-... cargo run --locked -p reviewgate-cli -- review-pr \
   --summary-out .reviewgate/summary.md
 ```
 
-## Agent Loop Contract
+## External Agent Contract
 
-Agents should consume the JSON artifact first and use the canonical PR summary as the human-readable fallback. The loop is:
+Agents should consume the JSON artifact first and use the canonical PR summary as the human-readable fallback. The optional external loop is:
 
 1. Read `.reviewgate/review.json` or the latest summary comment containing `<!-- review-gate-summary -->`.
 2. Treat any finding with a score ceiling below `fail_under` as blocking.
 3. Apply focused fixes, commit, and push.
-4. Wait for the same summary comment to update.
+4. Trigger or wait for Review Gate to rerun and update the same summary comment.
 5. Stop when `score >= target_score` and `status == "passed"`, or when human judgment is needed.
 
 `status == "failed"` means the gate should fail CI. `status == "needs_changes"` means non-blocking work remains but the hard floor has not been crossed.
@@ -111,9 +117,11 @@ Agents should consume the JSON artifact first and use the canonical PR summary a
 
 Review Gate is BYOK. The action reads the model key from `OPENROUTER_API_KEY` and must not log the key, request headers, or raw secret values. Model presets are explicit:
 
-- `cheap`: `openai/gpt-4.1-mini`
-- `balanced`: `openai/gpt-4.1`
+- `cheap`: `qwen/qwen3-coder`
+- `balanced`: `deepseek/deepseek-v4-flash`
 - `strong`: `anthropic/claude-sonnet-4`
+
+Users can pin exact OpenRouter model IDs when they want stability. Preset aliases are intentionally allowed to improve over time.
 
 The current Rust boundary builds deterministic chat-completion requests and is tested with a mock transport. Live HTTP transport is intentionally isolated from scoring and summary rendering.
 
@@ -124,6 +132,7 @@ The first live action implementation uses the `curl` binary available on GitHub-
 - Config parsing currently reads `target_score` and `fail_under`; richer config support comes later.
 - Context collection supports common instruction files and the PR diff; full repository indexing is intentionally out of scope for v0.
 - Inline comments are not posted yet. The canonical summary comment is the first publishing surface.
+- Cumulative PR cost rendering is modeled in the artifact and summary, but cross-run persistence still needs hidden summary metadata.
 - The action should not be used with `pull_request_target` for untrusted code.
 
 ## Repository Layout

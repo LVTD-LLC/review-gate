@@ -5,8 +5,28 @@
   "reviewed_sha": "abc123",
   "status": "passed",
   "verdict": "Good structure, but not ready for merge because one test gap remains.",
-  "models": ["balanced", "tests"],
+  "models": ["deepseek/deepseek-v4-flash", "tests"],
   "estimated_cost_usd": 0.08,
+  "cost_summary": {
+    "current_run_usd": 0.08,
+    "cumulative_pr_usd": 0.18,
+    "components": [
+      {
+        "label": "general",
+        "model": "deepseek/deepseek-v4-flash",
+        "prompt_tokens": 12400,
+        "completion_tokens": 900,
+        "estimated_cost_usd": 0.06
+      },
+      {
+        "label": "tests",
+        "model": "qwen/qwen3-coder",
+        "prompt_tokens": 4100,
+        "completion_tokens": 500,
+        "estimated_cost_usd": 0.02
+      }
+    ]
+  },
   "findings": [
     {
       "id": "rg_001",

@@ -9,9 +9,9 @@ Review Gate is a free, fully open-source credibility project. The initial goal i
 3. They optionally add `.reviewgate.yml`.
 4. A PR opens or updates.
 5. Review Gate posts one top-level summary comment with a clear `0-5` score.
-6. Review Gate emits structured JSON for agent loops.
+6. Review Gate emits structured JSON for humans or external agent loops.
 7. Review Gate posts inline comments only for specific, high-confidence issues.
-8. An agent fixes findings and pushes again until the review reaches the target score, ideally `5/5`.
+8. A human or external agent fixes findings and pushes again until the review reaches the target score, ideally `5/5`.
 
 ## Durable Product Constraints
 
@@ -44,5 +44,5 @@ Do not position Review Gate as a generic open-source PR reviewer. The sharper we
 - A user can install the action with one workflow file and one OpenRouter secret.
 - PRs get a stable summary comment that updates in place.
 - Humans can quickly understand merge readiness from the `0-5` score.
-- Agents can consume JSON artifacts and loop on blocking findings.
+- Agents can consume JSON artifacts and loop on blocking findings outside the GitHub Action.
 - The tool feels reliable enough for public open-source maintainers to try without a hosted account.
