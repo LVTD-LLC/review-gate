@@ -37,7 +37,6 @@ runs:
         REVIEWGATE_CONFIG: ${{ inputs.config }}
         REVIEWGATE_FAIL_UNDER: ${{ inputs.fail_under }}
         REVIEWGATE_TARGET_SCORE: ${{ inputs.target_score }}
-        REVIEWGATE_REPORT_ONLY: ${{ inputs.report_only }}
         REVIEWGATE_MOCK_ARTIFACT: ${{ inputs.mock_artifact }}
       run: |
         set -euo pipefail
