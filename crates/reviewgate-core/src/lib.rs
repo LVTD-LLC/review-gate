@@ -307,7 +307,9 @@ impl SummaryState {
             cost_history,
         };
         if state.reviewed_shas.len() > limit {
-            state.reviewed_shas.drain(0..state.reviewed_shas.len() - limit);
+            state
+                .reviewed_shas
+                .drain(0..state.reviewed_shas.len() - limit);
         }
         state.validate()?;
         Ok(state)

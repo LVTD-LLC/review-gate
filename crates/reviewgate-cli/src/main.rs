@@ -7,9 +7,8 @@ use std::process::Stdio;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use reviewgate_core::{
-    ModelPreset, OPENROUTER_API_KEY_ENV, OPENROUTER_DEFAULT_BASE_URL, ReviewArtifact,
-    ReviewStatus, Severity, SummaryOptions, extract_summary_state, render_summary,
-    render_summary_with_options,
+    ModelPreset, OPENROUTER_API_KEY_ENV, OPENROUTER_DEFAULT_BASE_URL, ReviewArtifact, ReviewStatus,
+    Severity, SummaryOptions, extract_summary_state, render_summary, render_summary_with_options,
 };
 
 const DEFAULT_CONTEXT_FILES: &[&str] = &[
