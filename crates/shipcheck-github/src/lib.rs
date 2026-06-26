@@ -167,12 +167,9 @@ pub fn plan_inline_comment_drafts(
             let line = finding.line?;
             let marker = inline_comment_marker(&finding.id);
             let legacy_marker = legacy_inline_comment_marker(&finding.id);
-            if existing_comments
-                .iter()
-                .any(|comment| {
-                    comment.body.contains(&marker) || comment.body.contains(&legacy_marker)
-                })
-            {
+            if existing_comments.iter().any(|comment| {
+                comment.body.contains(&marker) || comment.body.contains(&legacy_marker)
+            }) {
                 return None;
             }
             Some(InlineCommentDraft {
