@@ -350,9 +350,7 @@ fn review_pr(options: ReviewPrOptions) -> Result<()> {
     if artifact.models.is_empty() {
         artifact.models = vec![model];
     }
-    if artifact.review_stages.is_empty() {
-        artifact.review_stages = select_review_stages(&context, &artifact.models[0]);
-    }
+    artifact.review_stages = select_review_stages(&context, &artifact.models[0]);
     let mut artifact = artifact.with_computed_score()?;
     artifact.metrics = Some(compute_metrics(&artifact, inline_min_severity));
     let summary = render_summary_with_options(
@@ -394,6 +392,13 @@ fn select_review_stages(context: &ReviewContext, model: &str) -> Vec<ReviewStage
     }];
 
     let changed = context.changed_files.join("\n").to_ascii_lowercase();
+    let changed_path_matches = |predicate: fn(&str) -> bool| {
+        context
+            .changed_files
+            .iter()
+            .map(|path| path.to_ascii_lowercase())
+            .any(|path| predicate(&path))
+    };
     let mut add_stage = |name: &str, reason: &str| {
         stages.push(ReviewStage {
             name: name.to_string(),
@@ -415,7 +420,12 @@ fn select_review_stages(context: &ReviewContext, model: &str) -> Vec<ReviewStage
             "Changed paths touch security-sensitive code or docs.",
         );
     }
-    if changed.contains("readme") || changed.contains("/docs/") || changed.ends_with(".md") {
+    if changed_path_matches(|path| {
+        path.contains("readme")
+            || path.starts_with("docs/")
+            || path.contains("/docs/")
+            || path.ends_with(".md")
+    }) {
         add_stage("docs", "Changed paths include documentation.");
     }
     if changed.contains("frontend") || changed.contains(".tsx") || changed.contains(".css") {
@@ -1242,6 +1252,20 @@ Thanks {also not json}."#;
             false,
             GateMode::Job
         ));
+    }
+
+    #[test]
+    fn selects_docs_stage_for_root_markdown_paths() {
+        let context = ReviewContext {
+            reviewed_sha: "abc123".to_string(),
+            changed_files: vec!["CHANGELOG.md".to_string(), "src/lib.rs".to_string()],
+            diff: String::new(),
+            context_files: vec![],
+        };
+
+        let stages = select_review_stages(&context, "deepseek/deepseek-v4-flash");
+
+        assert!(stages.iter().any(|stage| stage.name == "docs"));
     }
 
     #[test]

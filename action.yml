@@ -196,7 +196,7 @@ runs:
 
         existing_markers_path="$GITHUB_WORKSPACE/.reviewgate/existing-inline-markers.json"
         gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr_number/comments" \
-          --jq '[.[].body | scan("<!-- review-gate-finding:[^ ]+ -->")]' > "$existing_markers_path"
+          --jq '[.[].body | scan("<!-- review-gate-finding:.*? -->")]' > "$existing_markers_path"
 
         drafts_path="$GITHUB_WORKSPACE/.reviewgate/inline-comments.jsonl"
         jq -c \
@@ -210,7 +210,7 @@ runs:
           | select((.confidence // 0) >= $min_confidence)
           | select((rank[.severity] // 99) <= (rank[$floor] // 2))
           | marker(.id) as $marker
-          | select((($existing[0] // []) | index($marker)) == null)
+          | select(((($existing | add) // []) | index($marker)) == null)
           | {
               path: .file,
               line: .line,
