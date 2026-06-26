@@ -133,11 +133,18 @@ runs:
 
         marker='<!-- shipcheck-summary -->'
         legacy_marker='<!-- review-gate-summary -->'
-        comment_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
-          --jq ".[] | select(.body | contains(\"$marker\") or contains(\"$legacy_marker\")) | .id" | head -n 1)"
+        comment_ids="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
+          --jq ".[] | select(.body | contains(\"$marker\") or contains(\"$legacy_marker\")) | .id")"
+        comment_id="$(printf '%s\n' "$comment_ids" | sed '/^$/d' | tail -n 1)"
         previous_summary_path="$GITHUB_WORKSPACE/.shipcheck/previous-summary.md"
 
         if [ -n "$comment_id" ]; then
+          printf '%s\n' "$comment_ids" | sed '/^$/d' | while read -r duplicate_id; do
+            if [ "$duplicate_id" != "$comment_id" ]; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$duplicate_id" >/dev/null
+              echo "Deleted duplicate Shipcheck summary comment $duplicate_id."
+            fi
+          done
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
             --jq .body > "$previous_summary_path"
           if ! cargo run --locked --manifest-path "$GITHUB_ACTION_PATH/Cargo.toml" \
@@ -210,12 +217,18 @@ runs:
           --slurpfile existing "$existing_markers_path" '
           def rank: {"P0":0,"P1":1,"P2":2,"P3":3,"P4":4};
           def marker($id): "<!-- shipcheck-finding:" + ($id | @uri) + " -->";
+          def legacy_marker($id): "<!-- review-gate-finding:" + ($id | @uri) + " -->";
           .findings[]
           | select(.file != null and .line != null)
           | select((.confidence // 0) >= $min_confidence)
           | select((rank[.severity] // 99) <= (rank[$floor] // 2))
           | marker(.id) as $marker
-          | select(((($existing | add) // []) | index($marker)) == null)
+          | legacy_marker(.id) as $legacy_marker
+          | (($existing | add) // []) as $existing_markers
+          | select(
+              ($existing_markers | index($marker)) == null
+              and ($existing_markers | index($legacy_marker)) == null
+            )
           | {
               path: .file,
               line: .line,
