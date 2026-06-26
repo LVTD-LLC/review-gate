@@ -294,7 +294,11 @@ mod tests {
                 .body
                 .contains("<!-- review-gate-finding:rg_001 -->")
         );
-        assert!(drafts[0].body.contains("Agent instruction: Handle and test"));
+        assert!(
+            drafts[0]
+                .body
+                .contains("Agent instruction: Handle and test")
+        );
     }
 
     #[test]
