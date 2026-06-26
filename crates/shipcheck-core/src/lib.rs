@@ -4,6 +4,7 @@ use thiserror::Error;
 pub const SUMMARY_MARKER: &str = "<!-- shipcheck-summary -->";
 pub const SUMMARY_STATE_PREFIX: &str = "<!-- shipcheck-state ";
 pub const SUMMARY_STATE_SUFFIX: &str = " -->";
+const LEGACY_SUMMARY_STATE_PREFIX: &str = "<!-- review-gate-state ";
 pub const DEFAULT_COST_HISTORY_LIMIT: usize = 20;
 pub const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
 pub const OPENROUTER_CHAT_COMPLETIONS_PATH: &str = "/chat/completions";
@@ -749,10 +750,13 @@ impl<T: OpenRouterTransport> OpenRouterClient<T> {
 }
 
 pub fn extract_summary_state(summary: &str) -> Result<Option<SummaryState>, ShipcheckError> {
-    let Some(start) = summary.find(SUMMARY_STATE_PREFIX) else {
+    let Some((start, prefix)) = [SUMMARY_STATE_PREFIX, LEGACY_SUMMARY_STATE_PREFIX]
+        .into_iter()
+        .find_map(|prefix| summary.find(prefix).map(|start| (start, prefix)))
+    else {
         return Ok(None);
     };
-    let state_start = start + SUMMARY_STATE_PREFIX.len();
+    let state_start = start + prefix.len();
     let Some(relative_end) = summary[state_start..].find(SUMMARY_STATE_SUFFIX) else {
         return Err(ShipcheckError::InvalidSummaryState(
             "missing state comment suffix".to_string(),
@@ -1122,6 +1126,26 @@ mod tests {
         assert_eq!(state.reviewed_shas, vec!["abc123", "def456"]);
         assert!((state.cumulative_cost_usd - 0.03).abs() < f64::EPSILON);
         assert!(second.contains("Cumulative PR review cost: $0.0300 across 2 run(s)"));
+    }
+
+    #[test]
+    fn parses_legacy_summary_state_after_rename() {
+        let summary = concat!(
+            "<!-- review-gate-summary -->\n\n",
+            "<!-- review-gate-state {\"version\":1,\"last_reviewed_sha\":\"abc123\",",
+            "\"reviewed_shas\":[\"abc123\"],\"run_count\":1,",
+            "\"cumulative_cost_usd\":0.01,\"cost_history\":[",
+            "{\"reviewed_sha\":\"abc123\",\"cost_usd\":0.01}]} -->\n\n",
+            "# Review Gate: 5/5\n"
+        );
+
+        let state = extract_summary_state(summary)
+            .expect("legacy state parses")
+            .expect("legacy state exists");
+
+        assert_eq!(state.last_reviewed_sha, "abc123");
+        assert_eq!(state.run_count, 1);
+        assert!((state.cumulative_cost_usd - 0.01).abs() < f64::EPSILON);
     }
 
     #[test]

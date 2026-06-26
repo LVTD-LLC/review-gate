@@ -132,8 +132,9 @@ runs:
         fi
 
         marker='<!-- shipcheck-summary -->'
+        legacy_marker='<!-- review-gate-summary -->'
         comment_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
-          --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -n 1)"
+          --jq ".[] | select(.body | contains(\"$marker\") or contains(\"$legacy_marker\")) | .id" | head -n 1)"
         previous_summary_path="$GITHUB_WORKSPACE/.shipcheck/previous-summary.md"
 
         if [ -n "$comment_id" ]; then
@@ -200,7 +201,7 @@ runs:
 
         existing_markers_path="$GITHUB_WORKSPACE/.shipcheck/existing-inline-markers.json"
         gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr_number/comments" \
-          --jq '[.[].body | scan("<!-- shipcheck-finding:.*? -->")]' > "$existing_markers_path"
+          --jq '[.[].body | scan("<!-- (?:shipcheck|review-gate)-finding:.*? -->")]' > "$existing_markers_path"
 
         drafts_path="$GITHUB_WORKSPACE/.shipcheck/inline-comments.jsonl"
         jq -c \

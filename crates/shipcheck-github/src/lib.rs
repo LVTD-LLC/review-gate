@@ -2,6 +2,8 @@ use shipcheck_core::{Finding, SUMMARY_MARKER, SecretString, Severity};
 
 pub const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
 pub const INLINE_COMMENT_MARKER_PREFIX: &str = "<!-- shipcheck-finding:";
+const LEGACY_SUMMARY_MARKER: &str = "<!-- review-gate-summary -->";
+const LEGACY_INLINE_COMMENT_MARKER_PREFIX: &str = "<!-- review-gate-finding:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExistingSummaryComment {
@@ -12,9 +14,9 @@ pub struct ExistingSummaryComment {
 pub fn find_summary_comment(
     comments: &[ExistingSummaryComment],
 ) -> Option<&ExistingSummaryComment> {
-    comments
-        .iter()
-        .find(|comment| comment.body.contains(SUMMARY_MARKER))
+    comments.iter().find(|comment| {
+        comment.body.contains(SUMMARY_MARKER) || comment.body.contains(LEGACY_SUMMARY_MARKER)
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +125,13 @@ pub fn inline_comment_marker(finding_id: &str) -> String {
     )
 }
 
+fn legacy_inline_comment_marker(finding_id: &str) -> String {
+    format!(
+        "{LEGACY_INLINE_COMMENT_MARKER_PREFIX}{} -->",
+        encode_marker_payload(finding_id)
+    )
+}
+
 pub fn render_inline_comment_body(finding: &Finding) -> String {
     let mut body = String::new();
     body.push_str(&inline_comment_marker(&finding.id));
@@ -157,9 +166,12 @@ pub fn plan_inline_comment_drafts(
             let path = finding.file.as_ref()?;
             let line = finding.line?;
             let marker = inline_comment_marker(&finding.id);
+            let legacy_marker = legacy_inline_comment_marker(&finding.id);
             if existing_comments
                 .iter()
-                .any(|comment| comment.body.contains(&marker))
+                .any(|comment| {
+                    comment.body.contains(&marker) || comment.body.contains(&legacy_marker)
+                })
             {
                 return None;
             }
@@ -182,6 +194,19 @@ mod tests {
         let comments = vec![ExistingSummaryComment {
             id: 1,
             body: format!("{}\n# Shipcheck: 4/5", SUMMARY_MARKER),
+        }];
+
+        assert_eq!(
+            find_summary_comment(&comments).map(|comment| comment.id),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn finds_legacy_summary_comment_after_rename() {
+        let comments = vec![ExistingSummaryComment {
+            id: 1,
+            body: "<!-- review-gate-summary -->\n# Review Gate: 4/5".to_string(),
         }];
 
         assert_eq!(
@@ -346,6 +371,28 @@ mod tests {
             Severity::P2,
             0.8,
         );
+
+        assert!(drafts.is_empty());
+    }
+
+    #[test]
+    fn dedupes_legacy_inline_markers_after_rename() {
+        let finding = Finding {
+            id: "rg_dup".to_string(),
+            severity: Severity::P1,
+            confidence: 0.95,
+            file: Some("src/lib.rs".to_string()),
+            line: Some(10),
+            title: "Already posted".to_string(),
+            detail: None,
+            agent_instruction: "No duplicate.".to_string(),
+        };
+        let existing = ExistingInlineComment {
+            id: 9,
+            body: "<!-- review-gate-finding:rg_dup -->".to_string(),
+        };
+
+        let drafts = plan_inline_comment_drafts(&[finding], &[existing], Severity::P2, 0.8);
 
         assert!(drafts.is_empty());
     }
