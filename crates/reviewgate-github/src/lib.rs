@@ -1,6 +1,7 @@
-use reviewgate_core::{SUMMARY_MARKER, SecretString};
+use reviewgate_core::{Finding, SUMMARY_MARKER, SecretString, Severity};
 
 pub const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
+pub const INLINE_COMMENT_MARKER_PREFIX: &str = "<!-- review-gate-finding:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExistingSummaryComment {
@@ -86,6 +87,74 @@ pub fn upsert_summary_comment<C: SummaryCommentClient>(
         }
         SummaryCommentAction::Noop { id } => Ok(id),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExistingInlineComment {
+    pub id: u64,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineCommentDraft {
+    pub finding_id: String,
+    pub path: String,
+    pub line: u32,
+    pub body: String,
+}
+
+pub fn inline_comment_marker(finding_id: &str) -> String {
+    format!("{INLINE_COMMENT_MARKER_PREFIX}{finding_id} -->")
+}
+
+pub fn render_inline_comment_body(finding: &Finding) -> String {
+    let mut body = String::new();
+    body.push_str(&inline_comment_marker(&finding.id));
+    body.push_str("\n\n");
+    body.push_str(&format!(
+        "**{}: {}**\n\n",
+        finding.severity.as_str(),
+        finding.title
+    ));
+    if let Some(detail) = &finding.detail {
+        if !detail.trim().is_empty() {
+            body.push_str(detail.trim());
+            body.push_str("\n\n");
+        }
+    }
+    body.push_str("Agent instruction: ");
+    body.push_str(finding.agent_instruction.trim());
+    body
+}
+
+pub fn plan_inline_comment_drafts(
+    findings: &[Finding],
+    existing_comments: &[ExistingInlineComment],
+    inline_min_severity: Severity,
+    min_confidence: f64,
+) -> Vec<InlineCommentDraft> {
+    findings
+        .iter()
+        .filter(|finding| finding.confidence >= min_confidence)
+        .filter(|finding| finding.severity.is_at_or_above(inline_min_severity))
+        .filter_map(|finding| {
+            let path = finding.file.as_ref()?;
+            let line = finding.line?;
+            let marker = inline_comment_marker(&finding.id);
+            if existing_comments
+                .iter()
+                .any(|comment| comment.body.contains(&marker))
+            {
+                return None;
+            }
+            Some(InlineCommentDraft {
+                finding_id: finding.id.clone(),
+                path: path.clone(),
+                line,
+                body: render_inline_comment_body(finding),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -200,5 +269,64 @@ mod tests {
         assert_eq!(auth.authorization_header(), "Bearer ghs_secret");
         assert_eq!(GITHUB_TOKEN_ENV, "GITHUB_TOKEN");
         assert!(!format!("{auth:?}").contains("ghs_secret"));
+    }
+
+    #[test]
+    fn plans_inline_comment_for_eligible_line_finding() {
+        let finding = Finding {
+            id: "rg_001".to_string(),
+            severity: Severity::P1,
+            confidence: 0.92,
+            file: Some("src/lib.rs".to_string()),
+            line: Some(42),
+            title: "Missing error handling".to_string(),
+            detail: Some("The error branch is dropped.".to_string()),
+            agent_instruction: "Handle and test the error branch.".to_string(),
+        };
+
+        let drafts = plan_inline_comment_drafts(&[finding], &[], Severity::P2, 0.8);
+
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].path, "src/lib.rs");
+        assert_eq!(drafts[0].line, 42);
+        assert!(drafts[0].body.contains("<!-- review-gate-finding:rg_001 -->"));
+        assert!(drafts[0].body.contains("Agent instruction: Handle and test"));
+    }
+
+    #[test]
+    fn skips_ineligible_and_duplicate_inline_comments() {
+        let duplicate = Finding {
+            id: "rg_dup".to_string(),
+            severity: Severity::P1,
+            confidence: 0.95,
+            file: Some("src/lib.rs".to_string()),
+            line: Some(10),
+            title: "Already posted".to_string(),
+            detail: None,
+            agent_instruction: "No duplicate.".to_string(),
+        };
+        let low_confidence = Finding {
+            id: "rg_low".to_string(),
+            confidence: 0.5,
+            ..duplicate.clone()
+        };
+        let no_line = Finding {
+            id: "rg_no_line".to_string(),
+            line: None,
+            ..duplicate.clone()
+        };
+        let existing = ExistingInlineComment {
+            id: 9,
+            body: inline_comment_marker("rg_dup"),
+        };
+
+        let drafts = plan_inline_comment_drafts(
+            &[duplicate, low_confidence, no_line],
+            &[existing],
+            Severity::P2,
+            0.8,
+        );
+
+        assert!(drafts.is_empty());
     }
 }
