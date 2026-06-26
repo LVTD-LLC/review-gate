@@ -1590,7 +1590,7 @@ mod tests {
         let artifact = ReviewArtifact {
             score: 5,
             target_score: 5,
-            fail_under: 4,
+            fail_under: 3,
             reviewed_sha: "abc123".to_string(),
             status: ReviewStatus::Passed,
             verdict: "Clean.".to_string(),
