@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Renamed the GitHub Action display name to `Review Gate AI` for Marketplace uniqueness.
 - Encoded inline finding marker payloads so every schema-valid finding ID dedupes safely across reruns.
 - Added best-effort inline PR comment publishing with stable finding markers, dedupe, configurable severity/confidence floors, and unmappable-line fallback.
 - Added review-stage metadata, stage selection, and offline fixture evaluation support.
