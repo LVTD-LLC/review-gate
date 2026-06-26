@@ -135,16 +135,11 @@ runs:
         legacy_marker='<!-- review-gate-summary -->'
         comment_ids="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
           --jq ".[] | select(.body | contains(\"$marker\") or contains(\"$legacy_marker\")) | .id")"
-        comment_id="$(printf '%s\n' "$comment_ids" | sed '/^$/d' | tail -n 1)"
+        comment_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
+          --jq "([.[] | select(.body | contains(\"$marker\") or contains(\"$legacy_marker\")) | select(.body | contains(\"<!-- shipcheck-state \") or contains(\"<!-- review-gate-state \")) | .id] | last) // ([.[] | select(.body | contains(\"$marker\") or contains(\"$legacy_marker\")) | .id] | last) // empty")"
         previous_summary_path="$GITHUB_WORKSPACE/.shipcheck/previous-summary.md"
 
         if [ -n "$comment_id" ]; then
-          printf '%s\n' "$comment_ids" | sed '/^$/d' | while read -r duplicate_id; do
-            if [ "$duplicate_id" != "$comment_id" ]; then
-              gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$duplicate_id" >/dev/null
-              echo "Deleted duplicate Shipcheck summary comment $duplicate_id."
-            fi
-          done
           gh api "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
             --jq .body > "$previous_summary_path"
           if ! cargo run --locked --manifest-path "$GITHUB_ACTION_PATH/Cargo.toml" \
@@ -165,6 +160,12 @@ runs:
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
             --field body=@"$summary_path" >/dev/null
           echo "Updated Shipcheck summary comment $comment_id."
+          printf '%s\n' "$comment_ids" | sed '/^$/d' | while read -r duplicate_id; do
+            if [ "$duplicate_id" != "$comment_id" ]; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$duplicate_id" >/dev/null
+              echo "Deleted duplicate Shipcheck summary comment $duplicate_id."
+            fi
+          done
         else
           gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
             --field body=@"$summary_path" >/dev/null
