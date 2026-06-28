@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed GitHub Action summary and inline comment publishing on current GitHub CLI versions by avoiding the unsupported `gh api --paginate --jq` option combination.
 - Removed pre-user migration compatibility for old Shipcheck config and marker names.
 - Renamed the product, action, CLI, Rust crates, config/artifact paths, workflow, schema, docs, and public agent-loop skill from Shipcheck to ReviewGate.
 - Added blue Marketplace branding with a shield icon for the GitHub Action listing.

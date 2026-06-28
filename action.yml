@@ -132,10 +132,41 @@ runs:
         fi
 
         marker='<!-- reviewgate-summary -->'
-        comment_ids="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
-          --jq "map(.[]) | .[] | select(.body | contains(\"$marker\")) | .id")"
-        comment_id="$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" \
-          --jq "map(.[]) as \$comments | ([\$comments[] | select(.body | contains(\"$marker\")) | {id, state: (try (.body | capture(\"<!-- reviewgate-state (?<state>\\\\{.*\\\\}) -->\").state | fromjson) catch null)} | select(.state != null) | {id, run_count: (.state.run_count // 0), reviewed_count: ((.state.reviewed_shas // []) | length)}] | max_by([.run_count, .reviewed_count]).id) // ([\$comments[] | select(.body | contains(\"$marker\")) | .id] | last) // empty")"
+        comments_path="$GITHUB_WORKSPACE/.reviewgate/issue-comments.json"
+        gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$pr_number/comments" > "$comments_path"
+        comment_ids="$(jq -r --arg marker "$marker" \
+          'add // [] | .[] | select(.body | contains($marker)) | .id' "$comments_path")"
+        comment_id="$(jq -r --arg marker "$marker" '
+          (add // []) as $comments
+          | (
+              [
+                $comments[]
+                | select(.body | contains($marker))
+                | {
+                    id,
+                    state: (
+                      try (
+                        .body
+                        | capture("<!-- reviewgate-state (?<state>\\{.*\\}) -->").state
+                        | fromjson
+                      ) catch null
+                    )
+                  }
+                | select(.state != null)
+                | {
+                    id,
+                    run_count: (.state.run_count // 0),
+                    reviewed_count: ((.state.reviewed_shas // []) | length)
+                  }
+              ]
+              | max_by([.run_count, .reviewed_count]).id
+            )
+            // (
+              [$comments[] | select(.body | contains($marker)) | .id]
+              | last
+            )
+            // empty
+        ' "$comments_path")"
         previous_summary_path="$GITHUB_WORKSPACE/.reviewgate/previous-summary.md"
 
         if [ -n "$comment_id" ]; then
@@ -207,8 +238,8 @@ runs:
         fi
 
         existing_markers_path="$GITHUB_WORKSPACE/.reviewgate/existing-inline-markers.json"
-        gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr_number/comments" \
-          --jq '[.[].body | scan("<!-- reviewgate-finding:.*? -->")]' > "$existing_markers_path"
+        gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$pr_number/comments" \
+          | jq '[.[][]? | .body | scan("<!-- reviewgate-finding:.*? -->")]' > "$existing_markers_path"
 
         drafts_path="$GITHUB_WORKSPACE/.reviewgate/inline-comments.jsonl"
         jq -c \
