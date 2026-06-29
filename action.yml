@@ -139,11 +139,8 @@ runs:
             cat "$state_path"
             printf '\n\n'
           fi
-          cat <<'EOF'
-# ReviewGate: running
-
-ReviewGate is reviewing this PR. The final score, concise summary, and inline comments will replace this message when the run completes.
-EOF
+          printf '# ReviewGate: running\n\n'
+          printf '%s\n' 'ReviewGate is reviewing this PR. The final score, concise summary, and inline comments will replace this message when the run completes.'
         } > "$body_path"
 
         if [ -n "$comment_id" ]; then
