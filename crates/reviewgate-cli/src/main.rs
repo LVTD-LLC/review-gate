@@ -81,6 +81,8 @@ enum Command {
         inline_min_confidence: Option<f64>,
         #[arg(long, value_enum)]
         summary_style: Option<SummaryStyleArg>,
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        inline_comments_available: bool,
     },
     /// Render a summary from an existing artifact, optionally carrying forward hidden state.
     RenderSummary {
@@ -98,6 +100,8 @@ enum Command {
         inline_min_confidence: Option<f64>,
         #[arg(long, value_enum)]
         summary_style: Option<SummaryStyleArg>,
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        inline_comments_available: bool,
     },
     /// Re-run the latest ReviewGate workflow run for a pull request branch.
     Recheck {
@@ -141,6 +145,7 @@ fn main() -> Result<()> {
             inline_min_severity,
             inline_min_confidence,
             summary_style,
+            inline_comments_available,
         } => review_pr(ReviewPrOptions {
             repo,
             config,
@@ -158,6 +163,7 @@ fn main() -> Result<()> {
             inline_min_severity,
             inline_min_confidence,
             summary_style: summary_style.map(Into::into),
+            inline_comments_available,
         }),
         Command::RenderSummary {
             input,
@@ -167,15 +173,17 @@ fn main() -> Result<()> {
             inline_min_severity,
             inline_min_confidence,
             summary_style,
-        } => render_summary_command(
+            inline_comments_available,
+        } => render_summary_command(RenderSummaryOptions {
             input,
             previous_summary,
             summary_out,
             summary_min_severity,
             inline_min_severity,
             inline_min_confidence,
-            summary_style.map(Into::into),
-        ),
+            summary_style: summary_style.map(Into::into),
+            inline_comments_available,
+        }),
         Command::Recheck { repo, pr, workflow } => recheck(repo, pr, workflow),
         Command::EvalFixtures { dir } => eval_fixtures(dir),
     }
@@ -300,6 +308,19 @@ struct ReviewPrOptions {
     inline_min_severity: Option<String>,
     inline_min_confidence: Option<f64>,
     summary_style: Option<SummaryStyle>,
+    inline_comments_available: bool,
+}
+
+#[derive(Debug)]
+struct RenderSummaryOptions {
+    input: PathBuf,
+    previous_summary: Option<PathBuf>,
+    summary_out: Option<PathBuf>,
+    summary_min_severity: Option<String>,
+    inline_min_severity: Option<String>,
+    inline_min_confidence: Option<f64>,
+    summary_style: Option<SummaryStyle>,
+    inline_comments_available: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -414,6 +435,7 @@ fn review_pr(options: ReviewPrOptions) -> Result<()> {
             summary_min_severity,
             inline_min_severity,
             inline_min_confidence,
+            inline_comments_available: options.inline_comments_available,
             summary_style,
             ..SummaryOptions::default()
         },
@@ -502,50 +524,48 @@ fn should_fail_review(status: ReviewStatus, report_only: bool, gate_mode: GateMo
     status == ReviewStatus::Failed && !report_only && gate_mode == GateMode::Job
 }
 
-fn render_summary_command(
-    input: PathBuf,
-    previous_summary: Option<PathBuf>,
-    summary_out: Option<PathBuf>,
-    summary_min_severity: Option<String>,
-    inline_min_severity: Option<String>,
-    inline_min_confidence: Option<f64>,
-    summary_style: Option<SummaryStyle>,
-) -> Result<()> {
-    let raw = fs::read_to_string(&input)
-        .with_context(|| format!("failed to read artifact {}", input.display()))?;
+fn render_summary_command(options: RenderSummaryOptions) -> Result<()> {
+    let raw = fs::read_to_string(&options.input)
+        .with_context(|| format!("failed to read artifact {}", options.input.display()))?;
     let artifact: ReviewArtifact = serde_json::from_str(&raw)
-        .with_context(|| format!("failed to parse artifact {}", input.display()))?;
+        .with_context(|| format!("failed to parse artifact {}", options.input.display()))?;
     let artifact = artifact.with_computed_score()?;
-    let previous_state = if let Some(path) = previous_summary {
+    let previous_state = if let Some(path) = options.previous_summary {
         let raw = fs::read_to_string(&path)
             .with_context(|| format!("failed to read previous summary {}", path.display()))?;
         extract_summary_state(&raw)?
     } else {
         None
     };
-    let summary_min_severity =
-        parse_optional_severity(summary_min_severity.as_deref(), "summary_min_severity")?
-            .unwrap_or(Severity::P4);
-    let inline_min_severity =
-        parse_optional_severity(inline_min_severity.as_deref(), "inline_min_severity")?
-            .unwrap_or(Severity::P2);
-    let inline_min_confidence =
-        inline_min_confidence.unwrap_or_else(|| SummaryOptions::default().inline_min_confidence);
+    let summary_min_severity = parse_optional_severity(
+        options.summary_min_severity.as_deref(),
+        "summary_min_severity",
+    )?
+    .unwrap_or(Severity::P4);
+    let inline_min_severity = parse_optional_severity(
+        options.inline_min_severity.as_deref(),
+        "inline_min_severity",
+    )?
+    .unwrap_or(Severity::P2);
+    let inline_min_confidence = options
+        .inline_min_confidence
+        .unwrap_or_else(|| SummaryOptions::default().inline_min_confidence);
     validate_confidence_threshold(inline_min_confidence, "inline_min_confidence")?;
-    let summary_style = summary_style.unwrap_or(SummaryStyle::Concise);
+    let summary_style = options.summary_style.unwrap_or(SummaryStyle::Concise);
     let summary = render_summary_with_options(
         &artifact,
         SummaryOptions {
             summary_min_severity,
             inline_min_severity,
             inline_min_confidence,
+            inline_comments_available: options.inline_comments_available,
             summary_style,
             ..SummaryOptions::default()
         },
         previous_state.as_ref(),
     )?;
 
-    write_or_print(summary_out, &summary, "review summary")?;
+    write_or_print(options.summary_out, &summary, "review summary")?;
     Ok(())
 }
 
@@ -1279,6 +1299,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_inline_comments_available_as_boolean_value() {
+        let cli = Cli::try_parse_from([
+            "reviewgate",
+            "render-summary",
+            "--input",
+            "review.json",
+            "--inline-comments-available",
+            "false",
+        ])
+        .expect("inline availability accepts explicit boolean value");
+
+        match cli.command {
+            Command::RenderSummary {
+                inline_comments_available,
+                ..
+            } => assert!(!inline_comments_available),
+            _ => panic!("expected render-summary command"),
+        }
+    }
+
+    #[test]
     fn action_publishes_start_signal_and_surfaces_summary_failures() {
         let action = include_str!("../../../action.yml");
         assert!(action.contains("- name: Publish ReviewGate start signal"));
@@ -1290,15 +1331,25 @@ mod tests {
         assert!(action.contains("publish_inline_comments:"));
         assert!(action.contains("default: \"true\""));
 
-        let summary_step = action
-            .split("- name: Publish ReviewGate summary")
-            .nth(1)
-            .expect("summary step exists")
-            .split("- name: Publish ReviewGate inline comments")
-            .next()
-            .expect("inline step follows summary step");
+        let inline_start = action
+            .find("- name: Publish ReviewGate inline comments")
+            .expect("inline step exists");
+        let summary_start = action
+            .find("- name: Publish ReviewGate summary")
+            .expect("summary step exists");
+        let enforce_start = action
+            .find("- name: Enforce ReviewGate")
+            .expect("enforce step exists");
+        assert!(inline_start < summary_start);
 
+        let inline_step = &action[inline_start..summary_start];
+        let summary_step = &action[summary_start..enforce_start];
+
+        assert!(inline_step.contains("inline-publish.env"));
+        assert!(inline_step.contains("trap on_inline_publish_error ERR"));
         assert!(!summary_step.contains("continue-on-error: true"));
+        assert!(summary_step.contains("inline-publish.env"));
+        assert!(summary_step.contains("--inline-comments-available"));
         assert!(summary_step.contains("::error title=ReviewGate summary publish failed::"));
     }
 

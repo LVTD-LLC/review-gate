@@ -620,6 +620,7 @@ pub struct SummaryOptions {
     pub summary_min_severity: Severity,
     pub inline_min_severity: Severity,
     pub inline_min_confidence: f64,
+    pub inline_comments_available: bool,
     pub cost_history_limit: usize,
     pub summary_style: SummaryStyle,
 }
@@ -630,6 +631,7 @@ impl Default for SummaryOptions {
             summary_min_severity: Severity::P4,
             inline_min_severity: Severity::P2,
             inline_min_confidence: 0.8,
+            inline_comments_available: true,
             cost_history_limit: DEFAULT_COST_HISTORY_LIMIT,
             summary_style: SummaryStyle::Concise,
         }
@@ -897,19 +899,27 @@ fn render_concise_summary_body(
     }
 
     output.push('\n');
+    let inline_visibility_reason = if options.inline_comments_available {
+        format!(
+            "{} not eligible for inline comments",
+            if fallback_findings.len() == 1 {
+                "it is"
+            } else {
+                "they are"
+            }
+        )
+    } else {
+        "inline comments are not available for this run".to_string()
+    };
     output.push_str(&format!(
-        "{} {} kept here because {} not eligible for inline comments.\n\n",
+        "{} {} kept here because {}.\n\n",
         fallback_findings.len(),
         if fallback_findings.len() == 1 {
             "finding is"
         } else {
             "findings are"
         },
-        if fallback_findings.len() == 1 {
-            "it is"
-        } else {
-            "they are"
-        }
+        inline_visibility_reason
     ));
     output.push_str("Fallback findings:\n");
     for finding in fallback_findings {
@@ -1112,11 +1122,12 @@ fn fallback_summary_findings(artifact: &ReviewArtifact, options: SummaryOptions)
                     .is_at_or_above(options.summary_min_severity)
         })
         .filter(|finding| {
-            !is_inline_comment_eligible(
-                finding,
-                options.inline_min_severity,
-                options.inline_min_confidence,
-            )
+            !options.inline_comments_available
+                || !is_inline_comment_eligible(
+                    finding,
+                    options.inline_min_severity,
+                    options.inline_min_confidence,
+                )
         })
         .collect()
 }
@@ -1128,6 +1139,8 @@ fn inline_skip_reason(finding: &Finding, options: SummaryOptions) -> &'static st
         "below the inline severity floor"
     } else if finding.confidence < options.inline_min_confidence {
         "below the inline confidence floor"
+    } else if !options.inline_comments_available {
+        "inline comments were disabled or could not be published"
     } else {
         "not posted inline"
     }
@@ -1545,6 +1558,51 @@ mod tests {
             detailed
                 .contains("1. P2: Add a regression test for the missing branch. (`src/lib.rs:42`)")
         );
+    }
+
+    #[test]
+    fn concise_summary_falls_back_when_inline_comments_are_unavailable() {
+        let artifact = ReviewArtifact {
+            score: 3,
+            target_score: 5,
+            fail_under: 4,
+            reviewed_sha: "abc123".to_string(),
+            status: ReviewStatus::Failed,
+            verdict: "One line-specific issue remains.".to_string(),
+            models: vec!["balanced".to_string()],
+            estimated_cost_usd: None,
+            cost_summary: None,
+            metrics: None,
+            review_stages: vec![],
+            findings: vec![Finding {
+                id: "rg_001".to_string(),
+                severity: Severity::P2,
+                confidence: 0.9,
+                file: Some("src/lib.rs".to_string()),
+                line: Some(42),
+                title: "Missing regression test".to_string(),
+                detail: None,
+                agent_instruction: "Add a regression test for the missing branch.".to_string(),
+            }],
+            notes: vec![],
+        };
+
+        let summary = render_summary_with_options(
+            &artifact,
+            SummaryOptions {
+                inline_comments_available: false,
+                ..SummaryOptions::default()
+            },
+            None,
+        )
+        .expect("summary renders");
+
+        assert!(summary.contains("Fallback findings:"));
+        assert!(summary.contains(
+            "1 finding is kept here because inline comments are not available for this run."
+        ));
+        assert!(summary.contains("P2: Missing regression test (`src/lib.rs:42`)"));
+        assert!(summary.contains("inline comments were disabled or could not be published"));
     }
 
     #[test]
