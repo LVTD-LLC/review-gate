@@ -1345,12 +1345,17 @@ mod tests {
         let inline_step = &action[inline_start..summary_start];
         let summary_step = &action[summary_start..enforce_start];
 
-        assert!(inline_step.contains("inline-publish.env"));
+        assert!(inline_step.contains("id: inline-comments"));
+        assert!(inline_step.contains("GITHUB_OUTPUT"));
         assert!(inline_step.contains("trap on_inline_publish_error ERR"));
         assert!(!summary_step.contains("continue-on-error: true"));
-        assert!(summary_step.contains("inline-publish.env"));
+        assert!(summary_step.contains("steps.inline-comments.outputs.inline_available"));
         assert!(summary_step.contains("--inline-comments-available"));
         assert!(summary_step.contains("::error title=ReviewGate summary publish failed::"));
+
+        let enforce_step = &action[enforce_start..];
+        assert!(enforce_step.contains("if: ${{ always() }}"));
+        assert!(enforce_step.contains("ReviewGate enforcement failed: missing"));
     }
 
     #[test]
