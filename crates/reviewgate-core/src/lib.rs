@@ -549,7 +549,8 @@ impl SummaryState {
         let mut reviewed_shas = previous
             .map(|state| state.reviewed_shas.clone())
             .unwrap_or_default();
-        if !reviewed_shas.contains(&artifact.reviewed_sha) {
+        let is_new_reviewed_sha = !reviewed_shas.contains(&artifact.reviewed_sha);
+        if is_new_reviewed_sha {
             reviewed_shas.push(artifact.reviewed_sha.clone());
         }
 
@@ -575,7 +576,11 @@ impl SummaryState {
             cumulative_cost_usd: previous
                 .map(|state| state.cumulative_cost_usd)
                 .unwrap_or(0.0)
-                + current_cost,
+                + if is_new_reviewed_sha {
+                    current_cost
+                } else {
+                    0.0
+                },
             cost_history,
         };
         if state.reviewed_shas.len() > limit {

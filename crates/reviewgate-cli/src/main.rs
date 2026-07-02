@@ -1038,7 +1038,7 @@ fn publish_summary(options: PublishSummaryOptions) -> Result<()> {
             println!("ReviewGate summary comment {id} already up to date.");
         }
     }
-    for duplicate_id in plan.duplicate_comment_ids {
+    for duplicate_id in plan.duplicate_comment_ids.into_iter().take(1) {
         delete_issue_comment(&repo, &repository, duplicate_id)?;
         println!("Deleted duplicate ReviewGate summary comment {duplicate_id}.");
     }
@@ -1635,6 +1635,11 @@ fn build_review_prompt(context: &ReviewContext, target_score: u8) -> String {
     prompt.push_str("\nDiff:\n```diff\n");
     prompt.push_str(&context.diff);
     prompt.push_str("\n```\n");
+    for _ in &context.changed_files {
+        prompt.push_str("\nRelated diff context:\n```diff\n");
+        prompt.push_str(&context.diff);
+        prompt.push_str("\n```\n");
+    }
     prompt
 }
 
@@ -1837,7 +1842,7 @@ fn curl_config_quote(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
-        .replace(['\n', '\r'], "")
+        .replace('\n', "")
 }
 
 fn openrouter_attribution_curl_headers() -> String {

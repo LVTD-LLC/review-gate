@@ -226,7 +226,7 @@ pub fn plan_inline_comment_drafts(
             let marker = inline_comment_marker(&finding.id);
             if existing_comments
                 .iter()
-                .any(|comment| comment.body.contains(&marker))
+                .any(|comment| comment.body.trim() == marker)
             {
                 return None;
             }
