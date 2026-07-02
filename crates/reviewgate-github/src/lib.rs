@@ -256,7 +256,7 @@ impl ChangedLineSet {
             }
         }
 
-        best.map(|(line, _, _)| line)
+        best.and_then(|(line, score, _)| (score > 0).then_some(line))
     }
 }
 
@@ -274,16 +274,6 @@ fn parse_new_hunk_start(header: &str) -> Option<u32> {
         .find_map(|part| part.strip_prefix('+'))
         .and_then(|part| part.split(',').next())
         .and_then(|line| line.parse().ok())
-}
-
-pub fn filter_inline_comment_drafts_to_changed_lines(
-    drafts: Vec<InlineCommentDraft>,
-    changed_lines: &ChangedLineSet,
-) -> Vec<InlineCommentDraft> {
-    drafts
-        .into_iter()
-        .filter(|draft| changed_lines.contains(&draft.path, draft.line))
-        .collect()
 }
 
 pub fn resolve_inline_comment_drafts_to_changed_lines(
@@ -705,32 +695,6 @@ diff --git a/crates/reviewgate-core/src/lib.rs b/crates/reviewgate-core/src/lib.
     }
 
     #[test]
-    fn filters_inline_drafts_to_changed_lines() {
-        let changed_lines = ChangedLineSet::from_unified_diff(
-            "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -10,3 +10,4 @@\n context\n+changed\n unchanged\n",
-        );
-        let drafts = vec![
-            InlineCommentDraft {
-                finding_id: "changed".to_string(),
-                path: "src/lib.rs".to_string(),
-                line: 11,
-                body: "changed".to_string(),
-            },
-            InlineCommentDraft {
-                finding_id: "context".to_string(),
-                path: "src/lib.rs".to_string(),
-                line: 10,
-                body: "context".to_string(),
-            },
-        ];
-
-        let drafts = filter_inline_comment_drafts_to_changed_lines(drafts, &changed_lines);
-
-        assert_eq!(drafts.len(), 1);
-        assert_eq!(drafts[0].finding_id, "changed");
-    }
-
-    #[test]
     fn repairs_inline_draft_anchors_to_matching_changed_lines() {
         let changed_lines = ChangedLineSet::from_unified_diff(
             "diff --git a/.github/workflows/reviewgate.yml b/.github/workflows/reviewgate.yml\n--- a/.github/workflows/reviewgate.yml\n+++ b/.github/workflows/reviewgate.yml\n@@ -5,0 +6,2 @@ on:\n+  pull_request_target:\n+    types: [opened, synchronize, reopened, ready_for_review]\n@@ -22 +24 @@ permissions:\n-  contents: read\n+  contents: write\n",
@@ -760,7 +724,7 @@ diff --git a/crates/reviewgate-core/src/lib.rs b/crates/reviewgate-core/src/lib.
     }
 
     #[test]
-    fn repairs_inline_draft_anchors_to_nearest_changed_line_when_text_does_not_match() {
+    fn skips_inline_draft_anchors_when_text_does_not_match_changed_lines() {
         let changed_lines = ChangedLineSet::from_unified_diff(
             "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -10,0 +11,2 @@\n+first\n+second\n",
         );
@@ -773,9 +737,9 @@ diff --git a/crates/reviewgate-core/src/lib.rs b/crates/reviewgate-core/src/lib.
 
         let plan = resolve_inline_comment_drafts_to_changed_lines(drafts, &changed_lines);
 
-        assert_eq!(plan.repaired_count, 1);
-        assert_eq!(plan.skipped_count, 0);
-        assert_eq!(plan.drafts[0].line, 12);
+        assert_eq!(plan.repaired_count, 0);
+        assert_eq!(plan.skipped_count, 1);
+        assert!(plan.drafts.is_empty());
     }
 
     #[test]
